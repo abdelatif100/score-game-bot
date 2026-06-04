@@ -10,12 +10,16 @@ export async function getOrCreateUser(telegramId: number, username?: string, fir
     return user;
   }
 
+  // Check if this is the first user
+  const userCount = await prisma.user.count();
+  const role = userCount === 0 ? Role.ADMIN : Role.CUSTOMER;
+
   return await prisma.user.create({
     data: {
       telegramId: BigInt(telegramId),
       username,
       firstName,
-      role: Role.CUSTOMER,
+      role: role,
     },
   });
 }

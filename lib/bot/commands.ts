@@ -22,8 +22,10 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
   // Get or register the user
   const user = await getOrCreateUser(from.id, from.username, from.first_name);
 
-  // If user.role === 'CUSTOMER' → ignore completely
-  if (user.role === Role.CUSTOMER) return null;
+  // If user.role === 'CUSTOMER' → ignore transactions but allow help
+  if (user.role === Role.CUSTOMER && text.toLowerCase() !== 'help' && text !== 'مساعدة') {
+    return "⏳ حسابك قيد المراجعة. يرجى الانتظار حتى يتم تفعيلك من قبل المسؤول.";
+  }
 
   // a) Numeric Income / Expense (e.g., 100 or -45)
   const numRegex = /^-?\d+(\.\d+)?$/;

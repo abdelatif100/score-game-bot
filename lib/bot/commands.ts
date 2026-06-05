@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { getOrCreateUser, isAllowed } from './permissions';
 import { Role, TransactionType } from '@prisma/client';
 import { broadcastMessage } from './broadcaster';
+import { sendMessage } from '@/lib/utils/telegramApi';
 
 interface TelegramMessage {
   chat: { id: number };
@@ -238,7 +239,71 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     return "📢 تم إرسال الإعلان.";
   }
 
-  // f) Help Command (help or مساعدة)
+  // f) List Users Command (list)
+  if (text.toLowerCase() === 'list') {
+    if (user.role !== Role.ADMIN) {
+      return "⛔ هذا الأمر للمسؤول فقط.";
+    }
+
+    const allUsers = await prisma.user.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (allUsers.length === 0) {
+      return "📭 لا يوجد مستخدمون مسجلون.";
+    }
+
+    const grouped = {
+      ADMIN: allUsers.filter((u) => u.role === Role.ADMIN),
+      PARTNER: allUsers.filter((u) => u.role === Role.PARTNER),
+      EMPLOYEE: allUsers.filter((u) => u.role === Role.EMPLOYEE),
+      CUSTOMER: allUsers.filter((u) => u.role === Role.CUSTOMER),
+    };
+
+    const roleHeaders: Record<Role, string> = {
+      ADMIN: '👑 المشرفون:',
+      PARTNER: '🤝 الشركاء:',
+      EMPLOYEE: '👤 الموظفون:',
+      CUSTOMER: '🛒 الزبائن:',
+    };
+
+    const roleArabicLabels: Record<Role, string> = {
+      ADMIN: 'مشرف',
+      PARTNER: 'شريك',
+      EMPLOYEE: 'موظف',
+      CUSTOMER: 'زبون',
+    };
+
+    const messages: string[] = [];
+    let currentMessage = '📋 قائمة المستخدمين المسجلين:\n';
+
+    for (const role of [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE, Role.CUSTOMER] as Role[]) {
+      const usersInRole = grouped[role];
+      if (usersInRole.length === 0) continue;
+
+      currentMessage += `\n${roleHeaders[role]}\n`;
+      for (const u of usersInRole) {
+        const roleArabic = roleArabicLabels[role];
+        const name = u.username ? `@${u.username}` : (u.firstName || 'بدون اسم');
+        const line = `${u.telegramId.toString()} (${roleArabic}) ${name}\n`;
+
+        if (currentMessage.length + line.length > 4000) {
+          messages.push(currentMessage);
+          currentMessage = line;
+        } else {
+          currentMessage += line;
+        }
+      }
+    }
+    messages.push(currentMessage);
+
+    for (const msg of messages) {
+      await sendMessage(user.telegramId.toString(), msg);
+    }
+    return null;
+  }
+
+  // g) Help Command (help or مساعدة)
   if (text.toLowerCase() === 'help' || text === 'مساعدة') {
     let helpText = "📋 قائمة الأوامر:\n";
     helpText += "• رقم موجب (مثال: 100) ➔ تسجيل إيراد\n";
@@ -258,6 +323,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       helpText += "• c ➔ المحل مغلق (بث)\n";
       helpText += "• o-c ➔ مغلق مؤقتاً (بث)\n";
       helpText += "• ad نص ➔ إعلان للجميع\n";
+      helpText += "• list ➔ عرض قائمة المستخدمين المسجلين\n";
     }
 
     helpText += "• help ➔ هذه القائمة";

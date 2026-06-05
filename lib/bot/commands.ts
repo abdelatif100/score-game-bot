@@ -91,6 +91,18 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       if (start > now) return "📅 لا توجد بيانات لهذا اليوم بعد.";
     }
 
+    // Check DailySummary first
+    const summary = await prisma.dailySummary.findUnique({
+      where: { date: start },
+    });
+
+    if (summary) {
+      const sum = Number(summary.totalProfit);
+      const dayNum = text === 'd' ? now.getDate() : parseInt(text.substring(2));
+      const prefix = text === 'd' ? "💰 أرباح اليوم (مسجلة): " : `💰 أرباح يوم ${dayNum}: `;
+      return sum >= 0 ? `${prefix}+${sum}` : `${prefix}${sum}`;
+    }
+
     const result = await prisma.transaction.aggregate({
       where: {
         timestamp: {
@@ -147,7 +159,58 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     return sum > 0 ? `💰 الأرباح: +${sum}` : `💸 الخسارة: ${sum}`;
   }
 
-  // d) Store Status Broadcasts (o, c, o-c)
+  // d) Settlement Command (s)
+  if (text.toLowerCase() === 's') {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    // 1. Calculate net profit
+    const result = await prisma.transaction.aggregate({
+      where: {
+        timestamp: {
+          gte: startOfDay,
+          lt: endOfDay,
+        },
+      },
+      _sum: {
+        amount: true,
+      },
+    });
+
+    const sum = result._sum.amount;
+    if (sum === null) {
+      return "📭 لا توجد معاملات اليوم لتسويتها.";
+    }
+
+    const totalProfit = Number(sum);
+
+    // 2. Create or update DailySummary
+    await prisma.dailySummary.upsert({
+      where: { date: startOfDay },
+      update: { totalProfit: totalProfit },
+      create: { date: startOfDay, totalProfit: totalProfit },
+    });
+
+    // 3. Delete transactions for today
+    await prisma.transaction.deleteMany({
+      where: {
+        timestamp: {
+          gte: startOfDay,
+          lt: endOfDay,
+        },
+      },
+    });
+
+    const sign = totalProfit >= 0 ? "+" : "";
+    return `✅ تم تسوية اليوم. إجمالي أرباح اليوم: ${sign}${totalProfit}`;
+  }
+
+  // e) Store Status Broadcasts (o, c, o-c)
   if (['o', 'c', 'o-c'].includes(text.toLowerCase())) {
     if (user.role !== Role.ADMIN) {
       return "⛔ هذا الأمر للمسؤول فقط.";
@@ -187,6 +250,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       helpText += "• d-رقم اليوم ➔ أرباح يوم معين\n";
       helpText += "• h ➔ أرباح الساعة الحالية\n";
       helpText += "• h-رقم ➔ أرباح ساعة معينة\n";
+      helpText += "• s ➔ تسوية اليوم (حفظ الأرباح ومسح المعاملات)\n";
     }
 
     if (user.role === Role.ADMIN) {

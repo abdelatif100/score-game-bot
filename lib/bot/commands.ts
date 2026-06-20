@@ -1,7 +1,6 @@
+import { PrismaClient, Role, TransactionType, User } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { getOrCreateUser, isAllowed } from './permissions';
-import pkg from '@prisma/client';
-const { Role, TransactionType } = pkg;
 import { broadcastMessage } from './broadcaster';
 import { sendMessage } from '../utils/telegramApi';
 
@@ -376,7 +375,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       return "⛔ هذا الأمر للمسؤول فقط.";
     }
 
-    const allUsers = await prisma.user.findMany({
+    const allUsers: User[] = await prisma.user.findMany({
       orderBy: { createdAt: 'asc' },
     });
 

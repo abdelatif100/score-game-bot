@@ -1,7 +1,7 @@
-import { handleMessage } from './lib/bot/commands.ts';
+import { handleMessage } from './lib/bot/commands';
 import pkg from '@prisma/client';
 const { Role } = pkg;
-import { prisma } from './lib/db/prisma.ts';
+import { prisma } from './lib/db/prisma';
 
 async function testDebt() {
   console.log('🚀 Starting Debt Logic Tests...\n');

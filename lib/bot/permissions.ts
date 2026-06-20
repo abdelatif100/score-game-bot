@@ -1,7 +1,5 @@
 import { prisma } from '../db/prisma';
-import pkg from '@prisma/client';
-const { Role } = pkg;
-import type { User } from '@prisma/client';
+import { Role, User } from '@prisma/client';
 
 export async function getOrCreateUser(telegramId: number, username?: string, firstName?: string): Promise<User> {
   const user = await prisma.user.findUnique({

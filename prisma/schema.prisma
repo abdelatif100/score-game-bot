@@ -26,6 +26,23 @@ model Transaction {
   user      User            @relation(fields: [userId], references: [id])
 }
 
+model Debtor {
+  id           Int               @id @default(autoincrement())
+  name         String            @unique
+  balance      Decimal           @db.Decimal(10, 2) @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  transactions DebtTransaction[]
+}
+
+model DebtTransaction {
+  id        Int      @id @default(autoincrement())
+  debtorId  Int
+  amount    Decimal  @db.Decimal(10, 2)
+  timestamp DateTime @default(now())
+  debtor    Debtor   @relation(fields: [debtorId], references: [id])
+}
+
 model DailySummary {
   id          Int      @id @default(autoincrement())
   date        DateTime @unique // date only (time part set to 00:00:00)

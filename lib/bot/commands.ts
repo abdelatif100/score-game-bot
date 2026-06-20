@@ -47,7 +47,84 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       : `✅ تم تسجيل المصروف: ${amount}`;
   }
 
-  // b) Partner Withdrawal (p-<amount>)
+  // b) Add Debtor (add <name>)
+  if (text.toLowerCase().startsWith('add ')) {
+    const name = text.substring(4).trim();
+    if (!name) return "❓ يرجى كتابة اسم المدين بعد 'add'.";
+
+    try {
+      const debtor = await prisma.debtor.create({
+        data: { name, balance: 0 },
+      });
+      return `✅ تم إضافة ${debtor.name} إلى قائمة الديون (رقم #${debtor.id}).`;
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        return "⚠️ هذا الاسم موجود بالفعل في قائمة الديون.";
+      }
+      console.error('Error adding debtor:', error);
+      return "❌ حدث خطأ أثناء إضافة المدين.";
+    }
+  }
+
+  // c) Debt Tracking (din or din <id> <amount>)
+  if (text.toLowerCase() === 'din' || text.toLowerCase().startsWith('din ')) {
+    const parts = text.split(/\s+/);
+    
+    // din alone: List all debtors
+    if (parts.length === 1) {
+      const debtors = await prisma.debtor.findMany({
+        orderBy: { id: 'asc' },
+      });
+
+      if (debtors.length === 0) return "📭 لا يوجد مدينون مسجلون.";
+
+      let response = "📋 قائمة الديون:\n";
+      let totalDebt = 0;
+      for (const d of debtors) {
+        const bal = Number(d.balance);
+        totalDebt += bal;
+        response += `${d.id}. ${d.name}: ${bal >= 0 ? '+' : ''}${bal}\n`;
+      }
+      response += `\n💰 إجمالي الديون: ${totalDebt >= 0 ? '+' : ''}${totalDebt}`;
+      return response;
+    }
+
+    // din <id> <amount>
+    if (parts.length === 3) {
+      const id = parseInt(parts[1]);
+      const amount = parseFloat(parts[2]);
+
+      if (isNaN(id) || isNaN(amount)) {
+        return "❓ صيغة غير صحيحة. استخدم: din <رقم> <المبلغ>";
+      }
+
+      try {
+        const debtor = await prisma.debtor.findUnique({ where: { id } });
+        if (!debtor) return "❌ لم يتم العثور على مدين بهذا الرقم.";
+
+        const newBalance = Number(debtor.balance) + amount;
+
+        await prisma.$transaction([
+          prisma.debtor.update({
+            where: { id },
+            data: { balance: newBalance },
+          }),
+          prisma.debtTransaction.create({
+            data: { debtorId: id, amount: amount },
+          }),
+        ]);
+
+        return `✅ تم تحديث حساب ${debtor.name}.\nالرصيد السابق: ${debtor.balance}\nالتعديل: ${amount >= 0 ? '+' : ''}${amount}\nالرصيد الحالي: ${newBalance}`;
+      } catch (error) {
+        console.error('Error updating debt:', error);
+        return "❌ حدث خطأ أثناء تحديث الدين.";
+      }
+    }
+
+    return "❓ صيغة غير صحيحة. استخدم 'din' للعرض أو 'din <رقم> <المبلغ>' للتسجيل.";
+  }
+
+  // d) Partner Withdrawal (p-<amount>)
   if (text.toLowerCase().startsWith('p-')) {
     if (!isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
       return "⛔ ليست لديك صلاحية.";
@@ -239,7 +316,48 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     return "📢 تم إرسال الإعلان.";
   }
 
-  // f) List Users Command (list)
+  // f) Promote to Worker (w-<telegramId>)
+  if (text.toLowerCase().startsWith('w-')) {
+    if (user.role !== Role.ADMIN) {
+      return "⛔ هذا الأمر للمسؤول فقط.";
+    }
+    const targetIdStr = text.substring(2).trim();
+    if (!/^\d+$/.test(targetIdStr)) {
+      return "❌ صيغة الأمر غير صحيحة. استخدم: w-<رقم_المعرف>";
+    }
+    const targetId = BigInt(targetIdStr);
+
+    try {
+      const targetUser = await prisma.user.findUnique({
+        where: { telegramId: targetId },
+      });
+
+      if (!targetUser) {
+        return "❌ لم يتم العثور على مستخدم بهذا المعرف.";
+      }
+
+      if (targetUser.role === Role.EMPLOYEE) {
+        return "ℹ️ هذا المستخدم عامل بالفعل.";
+      }
+
+      if (targetUser.role === Role.ADMIN) {
+        return "⛔ لا يمكن تغيير صلاحية مشرف.";
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { telegramId: targetId },
+        data: { role: Role.EMPLOYEE },
+      });
+
+      const name = updatedUser.username ? `@${updatedUser.username}` : (updatedUser.firstName || updatedUser.telegramId.toString());
+      return `✅ تم ترقية المستخدم ${name} إلى عامل.`;
+    } catch (error) {
+      console.error('Error promoting user:', error);
+      return "❌ حدث خطأ أثناء تعديل الصلاحية. حاول مرة أخرى.";
+    }
+  }
+
+  // g) List Users Command (list)
   if (text.toLowerCase() === 'list') {
     if (user.role !== Role.ADMIN) {
       return "⛔ هذا الأمر للمسؤول فقط.";
@@ -308,6 +426,9 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     let helpText = "📋 قائمة الأوامر:\n";
     helpText += "• رقم موجب (مثال: 100) ➔ تسجيل إيراد\n";
     helpText += "• رقم سالب (مثال: -45) ➔ تسجيل مصروف\n";
+    helpText += "• add الاسم ➔ إضافة مدين جديد\n";
+    helpText += "• din ➔ عرض قائمة الديون\n";
+    helpText += "• din رقم مبلغ ➔ تسجيل دين أو سداد\n";
 
     if (isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
       helpText += "• p-المبلغ (مثال: p-456) ➔ سحب شريك\n";

@@ -1,4 +1,4 @@
-import { prisma } from '../db/prisma.ts';
+import { prisma } from '../db/prisma';
 import pkg from '@prisma/client';
 const { Role } = pkg;
 import type { User } from '@prisma/client';

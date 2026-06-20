@@ -1,5 +1,5 @@
-import { prisma } from '../db/prisma.ts';
-import { sendMessage } from '../utils/telegramApi.ts';
+import { prisma } from '../db/prisma';
+import { sendMessage } from '../utils/telegramApi';
 
 /**
  * Broadcasts a message to all registered users in the database.

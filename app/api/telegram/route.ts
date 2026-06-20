@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleMessage } from '../../../lib/bot/commands.ts';
-import { sendMessage } from '../../../lib/utils/telegramApi.ts';
+import { handleMessage } from '../../../lib/bot/commands';
+import { sendMessage } from '../../../lib/utils/telegramApi';
 
 /**
  * Telegram Webhook Handler

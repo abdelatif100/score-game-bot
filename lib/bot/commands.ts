@@ -1,9 +1,9 @@
-import { prisma } from '../db/prisma.ts';
-import { getOrCreateUser, isAllowed } from './permissions.ts';
+import { prisma } from '../db/prisma';
+import { getOrCreateUser, isAllowed } from './permissions';
 import pkg from '@prisma/client';
 const { Role, TransactionType } = pkg;
-import { broadcastMessage } from './broadcaster.ts';
-import { sendMessage } from '../utils/telegramApi.ts';
+import { broadcastMessage } from './broadcaster';
+import { sendMessage } from '../utils/telegramApi';
 
 interface TelegramMessage {
   chat: { id: number };

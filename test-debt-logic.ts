@@ -1,6 +1,7 @@
-import { handleMessage } from './lib/bot/commands';
-import { Role } from '@prisma/client';
-import { prisma } from './lib/db/prisma';
+import { handleMessage } from './lib/bot/commands.ts';
+import pkg from '@prisma/client';
+const { Role } = pkg;
+import { prisma } from './lib/db/prisma.ts';
 
 async function testDebt() {
   console.log('🚀 Starting Debt Logic Tests...\n');
@@ -51,6 +52,20 @@ async function testDebt() {
     console.log('Test 5: List Debtors again');
     const reply5 = await handleMessage(msg('din'));
     console.log(`Result: ${reply5?.includes('Ahmed: +300') ? 'PASSED' : 'FAILED'} (Reply: ${reply5})\n`);
+
+    // 6. Past Profits (pf and PF)
+    console.log('Test 6: Past Profits (pf and PF)');
+    await prisma.dailySummary.upsert({
+      where: { date: new Date('2026-06-01') },
+      update: { totalProfit: 1000 },
+      create: { date: new Date('2026-06-01'), totalProfit: 1000 }
+    });
+    
+    const reply6a = await handleMessage(msg('pf'));
+    const reply6b = await handleMessage(msg('PF'));
+    
+    console.log(`Result pf: ${reply6a?.includes('2026-06-01: +1000') ? 'PASSED' : 'FAILED'}`);
+    console.log(`Result PF: ${reply6b?.includes('2026-06-01: +1000') ? 'PASSED' : 'FAILED'}\n`);
 
     console.log('✅ Debt logic tests completed.');
   } catch (error) {

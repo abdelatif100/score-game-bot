@@ -1,8 +1,9 @@
-import { prisma } from '@/lib/db/prisma';
-import { getOrCreateUser, isAllowed } from './permissions';
-import { Role, TransactionType } from '@prisma/client';
-import { broadcastMessage } from './broadcaster';
-import { sendMessage } from '@/lib/utils/telegramApi';
+import { prisma } from '../db/prisma.ts';
+import { getOrCreateUser, isAllowed } from './permissions.ts';
+import pkg from '@prisma/client';
+const { Role, TransactionType } = pkg;
+import { broadcastMessage } from './broadcaster.ts';
+import { sendMessage } from '../utils/telegramApi.ts';
 
 interface TelegramMessage {
   chat: { id: number };
@@ -16,9 +17,15 @@ interface TelegramMessage {
  */
 export async function handleMessage(msg: TelegramMessage): Promise<string | null> {
   const from = msg.from;
-  const text = msg.text?.trim();
+  let text = msg.text?.trim();
 
   if (!text) return null;
+
+  // Optional slash handling: strip slash if it looks like a named command
+  // (starts with '/', followed by something other than a digit or a minus sign)
+  if (text.startsWith('/') && text.length > 1 && text[1] !== '-' && !/^\d/.test(text[1])) {
+    text = text.substring(1);
+  }
 
   // Get or register the user
   const user = await getOrCreateUser(from.id, from.username, from.first_name);
@@ -49,6 +56,9 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
 
   // b) Add Debtor (add <name>)
   if (text.toLowerCase().startsWith('add ')) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
     const name = text.substring(4).trim();
     if (!name) return "❓ يرجى كتابة اسم المدين بعد 'add'.";
 
@@ -68,6 +78,9 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
 
   // c) Debt Tracking (din or din <id> <amount>)
   if (text.toLowerCase() === 'din' || text.toLowerCase().startsWith('din ')) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
     const parts = text.split(/\s+/);
     
     // din alone: List all debtors
@@ -148,7 +161,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
 
   // c) Profit Queries (d, d-<day>, h, h-<hour>)
   if (text === 'd' || text.startsWith('d-')) {
-    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
       return "⛔ ليست لديك صلاحية.";
     }
 
@@ -199,7 +212,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
   }
 
   if (text === 'h' || text.startsWith('h-')) {
-    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
       return "⛔ ليست لديك صلاحية.";
     }
 
@@ -421,6 +434,28 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     return null;
   }
 
+  // h) Past Profits (pf)
+  if (text.toLowerCase() === 'pf') {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+
+    const summaries = await prisma.dailySummary.findMany({
+      orderBy: { date: 'desc' },
+      take: 10, // Limit to last 10 days for brevity
+    });
+
+    if (summaries.length === 0) return "📭 لا توجد أرباح تاريخية مسجلة.";
+
+    let response = "📊 سجل الأرباح التاريخي (آخر 10 أيام):\n";
+    for (const s of summaries) {
+      const dateStr = s.date.toISOString().split('T')[0];
+      const profit = Number(s.totalProfit);
+      response += `${dateStr}: ${profit >= 0 ? '+' : ''}${profit}\n`;
+    }
+    return response;
+  }
+
   // g) Help Command (help or مساعدة)
   if (text.toLowerCase() === 'help' || text === 'مساعدة') {
     let helpText = "📋 قائمة الأوامر:\n";
@@ -429,13 +464,17 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     helpText += "• add الاسم ➔ إضافة مدين جديد\n";
     helpText += "• din ➔ عرض قائمة الديون\n";
     helpText += "• din رقم مبلغ ➔ تسجيل دين أو سداد\n";
+    helpText += "• pf ➔ عرض الأرباح التاريخية\n";
 
-    if (isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
-      helpText += "• p-المبلغ (مثال: p-456) ➔ سحب شريك\n";
+    if (isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
       helpText += "• d ➔ أرباح اليوم الحالي\n";
       helpText += "• d-رقم اليوم ➔ أرباح يوم معين\n";
       helpText += "• h ➔ أرباح الساعة الحالية\n";
       helpText += "• h-رقم ➔ أرباح ساعة معينة\n";
+    }
+
+    if (isAllowed(user, [Role.ADMIN, Role.PARTNER])) {
+      helpText += "• p-المبلغ (مثال: p-456) ➔ سحب شريك\n";
       helpText += "• s ➔ تسوية اليوم (حفظ الأرباح ومسح المعاملات)\n";
     }
 

@@ -62,3 +62,20 @@ enum TransactionType {
   EXPENSE
   PARTNER_WITHDRAWAL
 }
+
+model Tournament {
+  id        Int                @id @default(autoincrement())
+  name      String
+  status    String             @default("open")
+  createdAt DateTime           @default(now())
+  players   TournamentPlayer[]
+}
+
+model TournamentPlayer {
+  id           Int        @id @default(autoincrement())
+  tournamentId Int
+  playerName   String
+  isWinner     Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+}

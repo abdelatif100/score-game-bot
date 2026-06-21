@@ -316,6 +316,107 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     return "📢 تم إرسال إشعار الحالة لجميع المستخدمين.";
   }
 
+  // --- NEW: Tournament Commands ---
+  
+  // trn <name>
+  if (text.toLowerCase().startsWith('trn ')) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+    const name = text.substring(4).trim();
+    if (!name) return "❓ يرجى كتابة اسم البطولة بعد 'trn'.";
+
+    const active = await prisma.tournament.findFirst({
+      where: { status: { in: ['open', 'closed'] } },
+    });
+    if (active) return "⚠️ يوجد بطولة نشطة بالفعل. قم بإنهائها أولاً.";
+
+    await prisma.tournament.create({ data: { name } });
+    return `✅ تم إنشاء البطولة '${name}' وهي مفتوحة للتسجيل.`;
+  }
+
+  // reg <playerName>
+  if (text.toLowerCase().startsWith('reg ')) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+    const playerName = text.substring(4).trim();
+    if (!playerName) return "❓ يرجى كتابة اسم اللاعب بعد 'reg'.";
+
+    const tournament = await prisma.tournament.findFirst({
+      where: { status: 'open' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!tournament) return "❌ لا توجد بطولة مفتوحة للتسجيل حالياً.";
+
+    await prisma.tournamentPlayer.create({
+      data: { tournamentId: tournament.id, playerName },
+    });
+    return `✅ تم تسجيل اللاعب ${playerName} في البطولة.`;
+  }
+
+  // closereg
+  if (text.toLowerCase() === 'closereg') {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+    const tournament = await prisma.tournament.findFirst({
+      where: { status: 'open' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!tournament) return "❌ لا توجد بطولة مفتوحة.";
+
+    await prisma.tournament.update({
+      where: { id: tournament.id },
+      data: { status: 'closed' },
+    });
+    return `🔒 تم إغلاق التسجيل في البطولة '${tournament.name}'.`;
+  }
+
+  // win <playerNames>
+  if (text.toLowerCase().startsWith('win ')) {
+    if (!isAllowed(user, [Role.ADMIN, Role.PARTNER, Role.EMPLOYEE])) {
+      return "⛔ ليست لديك صلاحية.";
+    }
+    const names = text.substring(4).split(',').map((n) => n.trim());
+    
+    const tournament = await prisma.tournament.findFirst({
+      where: { status: { in: ['open', 'closed'] } },
+      orderBy: { createdAt: 'desc' },
+      include: { players: true },
+    });
+    if (!tournament) return "❌ لا توجد بطولة نشطة.";
+    if (tournament.status === 'open') return "⚠️ البطولة ما زالت مفتوحة للتسجيل. أغلق التسجيل أولاً باستخدام closereg.";
+
+    for (const name of names) {
+      const player = tournament.players.find((p) => p.playerName === name);
+      if (!player) return `❌ اللاعب '${name}' غير موجود في البطولة.`;
+    }
+
+    await prisma.$transaction([
+      ...names.map((name) =>
+        prisma.tournamentPlayer.updateMany({
+          where: { tournamentId: tournament.id, playerName: name },
+          data: { isWinner: true },
+        })
+      ),
+      prisma.tournament.update({
+        where: { id: tournament.id },
+        data: { status: 'completed' },
+      }),
+    ]);
+
+    const announcement = `🏆 نتائج بطولة '${tournament.name}' 🏆
+الفائزون:
+${names.map((n) => `• ${n}`).join('\n')}
+مبروك لجميع الفائزين! 🎉`;
+
+    broadcastMessage(announcement); // Fire-and-forget
+    return "📢 تم إعلان الفائزين.";
+  }
+
+  // --------------------------------
+
   // e) Admin Announcement (ad <message>)
   if (text.toLowerCase().startsWith('ad ')) {
     if (user.role !== Role.ADMIN) {
@@ -470,6 +571,10 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
       helpText += "• d-رقم اليوم ➔ أرباح يوم معين\n";
       helpText += "• h ➔ أرباح الساعة الحالية\n";
       helpText += "• h-رقم ➔ أرباح ساعة معينة\n";
+      helpText += "• trn اسم ➔ إنشاء بطولة جديدة\n";
+      helpText += "• reg اسم_اللاعب ➔ تسجيل لاعب في البطولة المفتوحة\n";
+      helpText += "• closereg ➔ إغلاق التسجيل في البطولة\n";
+      helpText += "• win أسماء_الفائزين ➔ إعلان الفائزين (مفصولة بفواصل)\n";
     }
 
     if (isAllowed(user, [Role.ADMIN, Role.PARTNER])) {

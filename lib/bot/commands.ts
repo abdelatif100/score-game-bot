@@ -1,4 +1,4 @@
-import { PrismaClient, Role, TransactionType, User } from '@prisma/client';
+import { PrismaClient, Role, TransactionType, User, TournamentPlayer } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import { getOrCreateUser, isAllowed } from './permissions';
 import { broadcastMessage } from './broadcaster';
@@ -389,7 +389,7 @@ export async function handleMessage(msg: TelegramMessage): Promise<string | null
     if (tournament.status === 'open') return "⚠️ البطولة ما زالت مفتوحة للتسجيل. أغلق التسجيل أولاً باستخدام closereg.";
 
     for (const name of names) {
-      const player = tournament.players.find((p) => p.playerName === name);
+      const player = tournament.players.find((p: TournamentPlayer) => p.playerName === name);
       if (!player) return `❌ اللاعب '${name}' غير موجود في البطولة.`;
     }
 
